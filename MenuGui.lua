@@ -1,12 +1,11 @@
--- LocalScript: dat trong StarterPlayer > StarterPlayerScripts (xoa script menu cu truoc)[span_1](start_span)[span_1](end_span)
--- Phim tat (PC): M = an/hien menu, F = bat/tat bay, N = bat/tat xuyen tuong, giu chuot phai = ngam[span_2](start_span)[span_2](end_span)
+-- LocalScript: dat trong StarterPlayer > StarterPlayerScripts (xoa script menu cu truoc)[span_0](start_span)[span_0](end_span)
+-- Phim tat (PC): M = an/hien menu, F = bat/tat bay, N = bat/tat xuyen tuong, giu chuot phai = ngam[span_1](start_span)[span_1](end_span)
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 local isTouch = UIS.TouchEnabled
 
 local DEFAULT_SPEED, DEFAULT_JUMP = 16, 50
@@ -34,6 +33,8 @@ local state = {
 	ignoreTeam = false,
 	auraOn = false,
 	auraFollow = true,
+	auraFlyUp = true,
+	auraHoverOffset = 4,
 	auraUseTool = true,
 	auraRange = 22,
 	auraCooldown = 0.22,
@@ -63,7 +64,7 @@ end
 
 local function getChar()
 	local c = player.Character
-	return c, c and c:FindFirstChild("HumanoidRootPart"), c and c:FindFirstChildOfClass("Humanoid")
+	return c, c and c:FindFirstChild("HumanoidRootPart"), c and c and c:FindFirstChildOfClass("Humanoid")
 end
 
 local function applyStats()
@@ -99,12 +100,23 @@ local function isValidTargetModel(model)
 	return true, root, hum, targetPlayer
 end
 
-local function collectAllTargetModels()
+local cachedTargets = {}
+local lastTargetScan = 0
+
+local function collectAllTargetModels(forceScan)
+	local now = os.clock()
+	if not forceScan and (now - lastTargetScan) < 0.35 and #cachedTargets > 0 then
+		return cachedTargets
+	end
+	lastTargetScan = now
+
 	local list = {}
+	local seen = {}
 	local myChar = player.Character
 
 	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= player and p.Character then
+		if p ~= player and p.Character and not seen[p.Character] then
+			seen[p.Character] = true
 			table.insert(list, p.Character)
 		end
 	end
@@ -112,13 +124,15 @@ local function collectAllTargetModels()
 	for _, desc in ipairs(workspace:GetDescendants()) do
 		if desc:IsA("Humanoid") and desc.Parent and desc.Parent:IsA("Model") then
 			local m = desc.Parent
-			if m ~= myChar and not getPlayerFromModel(m) then
+			if m ~= myChar and not seen[m] and not getPlayerFromModel(m) then
+				seen[m] = true
 				table.insert(list, m)
 			end
 		end
 	end
 
-	return list
+	cachedTargets = list
+	return cachedTargets
 end
 
 -- ===================== ESP =====================
@@ -210,7 +224,7 @@ local function syncEspTargets()
 	end
 
 	local validSet = {}
-	for _, m in ipairs(collectAllTargetModels()) do
+	for _, m in ipairs(collectAllTargetModels(true)) do
 		if isValidTargetModel(m) then
 			validSet[m] = true
 			if not espHighlights[m] then
@@ -385,7 +399,7 @@ toggleBtn.BackgroundColor3 = uiThemes[1].card
 toggleBtn.TextColor3 = Color3.fromRGB(255, 225, 95)
 toggleBtn.Font = Enum.Font.GothamBold
 toggleBtn.TextSize = 13
-toggleBtn.Text = "👑VINHDZ👑"
+toggleBtn.Text = "VINHDZ"
 toggleBtn.Parent = gui
 corner(toggleBtn, 10)
 addStroke(toggleBtn, Color3.fromRGB(255, 225, 95), 0.35)
@@ -405,7 +419,7 @@ local header = Instance.new("TextButton")
 header.Size = UDim2.new(1, -40, 0, 36)
 header.Position = UDim2.new(0, 8, 0, 0)
 header.BackgroundTransparency = 1
-header.Text = "👑VINHDZ👑"
+header.Text = "VINHDZ MENU"
 header.TextColor3 = Color3.fromRGB(255, 225, 95)
 header.Font = Enum.Font.GothamBold
 header.TextSize = 15
@@ -678,13 +692,20 @@ local function makeSliderBlock(page, title, minV, maxV, init, onValue, onToggle,
 end
 
 -- ===== TAB CHIEN DAU =====
-setters.auraOn = makeToggleRow(pageCombat, "Auto Kill tat ca (Tool)", function(on) state.auraOn = on end)
+setters.auraOn = makeToggleRow(pageCombat, "Auto Kill tat ca (Tool)", function(on)
+	state.auraOn = on
+	if not on and state.fly and state.auraFlyUp then
+		setFly(false)
+	end
+end)
 setters.ignoreTeam = makeToggleRow(pageCombat, "Bo qua cung team", function(on)
 	state.ignoreTeam = on
 	if state.esp then syncEspTargets() end
 end)
 makeToggleRow(pageCombat, "Tu rut & kich hoat Tool", function(on) state.auraUseTool = on end, true)
 makeToggleRow(pageCombat, "Tu bam muc tieu", function(on) state.auraFollow = on end, true)
+makeToggleRow(pageCombat, "Bay theo muc tieu", function(on) state.auraFlyUp = on end, true)
+makeSliderBlock(pageCombat, "Do cao bay Auto Kill", -5, 25, state.auraHoverOffset, function(v) state.auraHoverOffset = v end, nil, "m")
 makeSliderBlock(pageCombat, "Tam Auto Kill", 5, 50, state.auraRange, function(v) state.auraRange = v end, nil, "m")
 makeSliderBlock(pageCombat, "Nhip danh (ms)", 80, 1000, math.floor(state.auraCooldown * 1000), function(v)
 	state.auraCooldown = v / 1000
@@ -787,6 +808,8 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
 local function getTarget()
+	local camera = workspace.CurrentCamera
+	if not camera then return nil end
 	local center = camera.ViewportSize / 2
 	local best, bestDist = nil, state.fov
 	local myChar = player.Character
@@ -815,6 +838,7 @@ end
 local lastEspSync = 0
 
 RunService.RenderStepped:Connect(function(dt)
+	local camera = workspace.CurrentCamera
 	local char, myHrp, hum = getChar()
 	local now = os.clock()
 
@@ -826,7 +850,7 @@ RunService.RenderStepped:Connect(function(dt)
 
 	-- Cap nhat khoang cach ESP
 	if state.esp and state.espTag then
-		local origin = myHrp and myHrp.Position or camera.CFrame.Position
+		local origin = myHrp and myHrp.Position or (camera and camera.CFrame.Position or Vector3.zero)
 		for model, tag in pairs(espTags) do
 			local ok, root = isValidTargetModel(model)
 			if ok and root and tag.label then
@@ -836,20 +860,32 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- Auto Kill dung Tool (ap dung tat ca muc tieu)
+	-- Auto Kill dung Tool + bay theo muc tieu
 	if state.auraOn and char and myHrp and hum and hum.Health > 0 then
 		local auraTargetRoot = getAuraTarget(myHrp)
 		if auraTargetRoot then
-			local toTarget = auraTargetRoot.Position - myHrp.Position
+			local targetPos = auraTargetRoot.Position + Vector3.new(0, state.auraHoverOffset, 0)
+			local toTarget = targetPos - myHrp.Position
 			local flatOffset = Vector3.new(toTarget.X, 0, toTarget.Z)
 			local distFlat = flatOffset.Magnitude
 
+			-- Xoay mat huong ve muc tieu
+			local lookPos = Vector3.new(auraTargetRoot.Position.X, myHrp.Position.Y, auraTargetRoot.Position.Z)
 			if distFlat > 0.05 then
-				local lookPos = Vector3.new(auraTargetRoot.Position.X, myHrp.Position.Y, auraTargetRoot.Position.Z)
 				myHrp.CFrame = myHrp.CFrame:Lerp(CFrame.lookAt(myHrp.Position, lookPos), 1 - math.exp(-22 * dt))
 			end
 
-			if state.auraFollow and distFlat > 4.5 then
+			if state.auraFlyUp and not state.fly then
+				setFly(true)
+			end
+
+			if state.fly and bv and state.auraFlyUp then
+				local moveVec = Vector3.zero
+				if state.auraFollow and toTarget.Magnitude > 3.5 then
+					moveVec = toTarget.Unit * math.max(state.flySpeed, 45)
+				end
+				bv.Velocity = bv.Velocity:Lerp(moveVec, 1 - math.exp(-16 * dt))
+			elseif state.auraFollow and distFlat > 4.5 then
 				hum:Move(flatOffset.Unit, false)
 			end
 
@@ -857,6 +893,8 @@ RunService.RenderStepped:Connect(function(dt)
 				lastAuraHit = now
 				useEquippedOrBackpackTool(char, hum)
 			end
+		elseif state.fly and state.auraFlyUp and bv then
+			bv.Velocity = bv.Velocity:Lerp(Vector3.zero, 1 - math.exp(-12 * dt))
 		end
 	end
 
@@ -879,8 +917,9 @@ RunService.RenderStepped:Connect(function(dt)
 		table.clear(savedCollide)
 	end
 
-	-- Bay
-	if state.fly and bv and hum then
+	-- Bay thu cong khi khong bi Auto Kill bay keo
+	local auraControllingFlight = state.auraOn and state.auraFlyUp and (getAuraTarget(myHrp) ~= nil)
+	if state.fly and bv and hum and not auraControllingFlight and camera then
 		local move = hum.MoveDirection
 		local look = camera.CFrame.LookVector
 		local flat = Vector3.new(look.X, 0, look.Z)
@@ -903,7 +942,7 @@ RunService.RenderStepped:Connect(function(dt)
 		or state.aimHeld
 	)
 
-	if shouldAim then
+	if shouldAim and camera then
 		local aimPart = getTarget()
 		if aimPart then
 			local target = CFrame.lookAt(camera.CFrame.Position, aimPart.Position)
