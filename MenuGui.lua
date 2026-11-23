@@ -1,20 +1,40 @@
--- LocalScript: dat trong StarterPlayer > StarterPlayerScripts (xoa script menu cu truoc)[span_0](start_span)[span_0](end_span)
--- Phim tat (PC): M = an/hien menu, F = bat/tat bay, N = bat/tat xuyen tuong, giu chuot phai = ngam[span_1](start_span)[span_1](end_span)
+-- LocalScript: dat trong StarterPlayer > StarterPlayerScripts (xoa script menu cu truoc)
+-- Phim tat (PC): M = an/hien menu, F = bat/tat bay, N = bat/tat xuyen tuong, Q = luot nhanh, T = khoa muc tieu, giu chuot phai = ngam
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
 
 local player = Players.LocalPlayer
 local isTouch = UIS.TouchEnabled
 
 local DEFAULT_SPEED, DEFAULT_JUMP = 16, 50
+local DEFAULT_GRAVITY = workspace.Gravity
+local DEFAULT_FOV = 70
+
+local origLighting = {
+	Ambient = Lighting.Ambient,
+	OutdoorAmbient = Lighting.OutdoorAmbient,
+	Brightness = Lighting.Brightness,
+	FogEnd = Lighting.FogEnd,
+	FogStart = Lighting.FogStart,
+	GlobalShadows = Lighting.GlobalShadows,
+}
 
 local espThemes = {
 	{ name = "Do - Vang", fill = Color3.fromRGB(255, 75, 75), outline = Color3.fromRGB(255, 235, 90) },
 	{ name = "Xanh duong", fill = Color3.fromRGB(60, 150, 255), outline = Color3.fromRGB(160, 225, 255) },
 	{ name = "Xanh la", fill = Color3.fromRGB(60, 220, 120), outline = Color3.fromRGB(190, 255, 210) },
 	{ name = "Tim", fill = Color3.fromRGB(185, 95, 255), outline = Color3.fromRGB(240, 195, 255) },
+}
+
+local fovColors = {
+	{ name = "Trang", color = Color3.fromRGB(255, 255, 255) },
+	{ name = "Do", color = Color3.fromRGB(255, 80, 80) },
+	{ name = "Xanh la", color = Color3.fromRGB(80, 255, 130) },
+	{ name = "Vang", color = Color3.fromRGB(255, 225, 80) },
 }
 
 local uiThemes = {
@@ -24,36 +44,70 @@ local uiThemes = {
 }
 
 local state = {
+	-- Di chuyen
 	speedOn = false, speed = 50,
+	sprintBoost = false, sprintSpeed = 85,
+	antiSlow = false,
 	jumpOn = false, jump = 120,
 	infJump = false,
 	noclip = false,
 	fly = false, flySpeed = 60, up = false, down = false,
+	freezeChar = false,
+	airWalk = false,
+	lowGrav = false, gravValue = 60,
+	spinOn = false, spinSpeed = 12,
+	savedCFrame = nil,
 
+	-- Chien dau / Ngam / Auto ban
 	ignoreTeam = false,
-	auraOn = false,
-	auraFollow = true,
-	auraFlyUp = true,
-	auraHoverOffset = 4,
-	auraUseTool = true,
-	auraRange = 22,
-	auraCooldown = 0.22,
-	aim = false, autoAim = false, fov = 160, showFov = true, aimHeld = false,
+	playersOnly = false,
+	ignoreCrouch = false,
+	aim = false, autoAim = false,
+	aimPartMode = "Head", -- "Head" | "HumanoidRootPart"
+	aimPredict = false,
+	aimSmooth = 18, fov = 160, showFov = true, fovColorIdx = 1, aimHeld = false,
+	targetLockOn = false,
+	lockedTargetModel = nil,
+	targetLine = false,
+	targetInfoHud = false,
+	triggerBot = false,
+	triggerCooldown = 0.14,
+	triggerFovOnly = true,
 
+	-- Hien thi
 	esp = false,
 	espTag = true,
+	espHealth = true,
+	espBox = false,
+	espTracer = false,
+	espMaxDist = 500,
+	espFillTrans = 65, -- %
 	espColorIdx = 1,
+	camFov = 70,
+	fullbright = false,
+	noFog = false,
 	uiThemeIdx = 1,
+
+	-- Tien ich
+	antiAfk = true,
+	respawnAtDeath = false,
+	lastDeathCFrame = nil,
+	showPerf = false,
+	camLockThird = false,
+	autoEquip = false,
 }
 
 local bv
+local airPart
 local savedCollide = {}
 local espHighlights = {}
 local espTags = {}
+local espBoxes = {}
+local espTracers = {}
 local setters = {}
 local uiCards = {}
 local uiFills = {}
-local lastAuraHit = 0
+local lastTriggerShot = 0
 
 -- Xoa UI cu neu trung
 local playerGui = player:WaitForChild("PlayerGui")
@@ -64,15 +118,42 @@ end
 
 local function getChar()
 	local c = player.Character
-	return c, c and c:FindFirstChild("HumanoidRootPart"), c and c and c:FindFirstChildOfClass("Humanoid")
+	return c, c and c:FindFirstChild("HumanoidRootPart"), c and c:FindFirstChildOfClass("Humanoid")
 end
 
 local function applyStats()
 	local _, _, hum = getChar()
 	if hum then
 		hum.UseJumpPower = true
-		hum.WalkSpeed = state.speedOn and state.speed or DEFAULT_SPEED
+		local baseSpd = state.speedOn and state.speed or DEFAULT_SPEED
+		if state.sprintBoost and UIS:IsKeyDown(Enum.KeyCode.LeftShift) and not state.fly then
+			baseSpd = state.sprintSpeed
+		end
+		hum.WalkSpeed = baseSpd
 		hum.JumpPower = state.jumpOn and state.jump or DEFAULT_JUMP
+	end
+	workspace.Gravity = state.lowGrav and state.gravValue or DEFAULT_GRAVITY
+end
+
+local function applyLighting()
+	if state.fullbright then
+		Lighting.Ambient = Color3.fromRGB(200, 200, 200)
+		Lighting.OutdoorAmbient = Color3.fromRGB(200, 200, 200)
+		Lighting.Brightness = 2
+		Lighting.GlobalShadows = false
+	else
+		Lighting.Ambient = origLighting.Ambient
+		Lighting.OutdoorAmbient = origLighting.OutdoorAmbient
+		Lighting.Brightness = origLighting.Brightness
+		Lighting.GlobalShadows = origLighting.GlobalShadows
+	end
+
+	if state.noFog then
+		Lighting.FogStart = 1e6
+		Lighting.FogEnd = 1e6
+	else
+		Lighting.FogStart = origLighting.FogStart
+		Lighting.FogEnd = origLighting.FogEnd
 	end
 end
 
@@ -81,7 +162,7 @@ local function getPlayerFromModel(model)
 end
 
 local function isValidTargetModel(model)
-	local myChar = player.Character
+	local myChar, myHrp = getChar()
 	if not model or not model:IsA("Model") or model == myChar then
 		return false
 	end
@@ -92,7 +173,19 @@ local function isValidTargetModel(model)
 		return false
 	end
 
+	if myHrp and (root.Position - myHrp.Position).Magnitude > state.espMaxDist then
+		return false
+	end
+
+	if state.ignoreCrouch and hum.HipHeight < 1.2 then
+		return false
+	end
+
 	local targetPlayer = getPlayerFromModel(model)
+	if state.playersOnly and not targetPlayer then
+		return false
+	end
+
 	if state.ignoreTeam and targetPlayer and player.Team and targetPlayer.Team and player.Team == targetPlayer.Team then
 		return false
 	end
@@ -121,12 +214,14 @@ local function collectAllTargetModels(forceScan)
 		end
 	end
 
-	for _, desc in ipairs(workspace:GetDescendants()) do
-		if desc:IsA("Humanoid") and desc.Parent and desc.Parent:IsA("Model") then
-			local m = desc.Parent
-			if m ~= myChar and not seen[m] and not getPlayerFromModel(m) then
-				seen[m] = true
-				table.insert(list, m)
+	if not state.playersOnly then
+		for _, desc in ipairs(workspace:GetDescendants()) do
+			if desc:IsA("Humanoid") and desc.Parent and desc.Parent:IsA("Model") then
+				local m = desc.Parent
+				if m ~= myChar and not seen[m] and not getPlayerFromModel(m) then
+					seen[m] = true
+					table.insert(list, m)
+				end
 			end
 		end
 	end
@@ -135,29 +230,59 @@ local function collectAllTargetModels(forceScan)
 	return cachedTargets
 end
 
--- ===================== ESP =====================
+-- ===================== UI ROOT =====================
+local gui = Instance.new("ScreenGui")
+gui.Name = "VinhDzMenu"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local function corner(o, r)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or 8)
+	c.Parent = o
+	return c
+end
+
+local function addStroke(o, color, transparency, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color or Color3.fromRGB(255, 225, 95)
+	s.Thickness = thickness or 1.5
+	s.Transparency = transparency or 0.4
+	s.Parent = o
+	return s
+end
+
+-- ===================== ESP & VISUAL OVERLAYS =====================
 local function clearEspForKey(key)
-	local hl = espHighlights[key]
-	if hl then
-		hl:Destroy()
+	if espHighlights[key] then
+		espHighlights[key]:Destroy()
 		espHighlights[key] = nil
 	end
-	local tag = espTags[key]
-	if tag then
-		if tag.gui then
-			tag.gui:Destroy()
-		end
+	if espTags[key] then
+		if espTags[key].gui then espTags[key].gui:Destroy() end
 		espTags[key] = nil
+	end
+	if espBoxes[key] then
+		espBoxes[key]:Destroy()
+		espBoxes[key] = nil
+	end
+	if espTracers[key] then
+		espTracers[key]:Destroy()
+		espTracers[key] = nil
 	end
 end
 
 local function clearAllEsp()
 	for k in pairs(espHighlights) do clearEspForKey(k) end
 	for k in pairs(espTags) do clearEspForKey(k) end
+	for k in pairs(espBoxes) do clearEspForKey(k) end
+	for k in pairs(espTracers) do clearEspForKey(k) end
 end
 
 local function applyEspToModel(model)
-	local ok, root, _, targetPlayer = isValidTargetModel(model)
+	local ok, root, hum, targetPlayer = isValidTargetModel(model)
 	if not state.esp or not ok then
 		clearEspForKey(model)
 		return
@@ -170,19 +295,37 @@ local function applyEspToModel(model)
 	hl.Adornee = model
 	hl.FillColor = theme.fill
 	hl.OutlineColor = theme.outline
-	hl.FillTransparency = 0.65
+	hl.FillTransparency = state.espFillTrans / 100
 	hl.OutlineTransparency = 0
 	hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 	hl.Parent = model
 	espHighlights[model] = hl
+
+	local box = Instance.new("SelectionBox")
+	box.Name = "EspBox"
+	box.Adornee = model
+	box.Color3 = theme.outline
+	box.LineThickness = 0.03
+	box.SurfaceTransparency = 1
+	box.Visible = state.espBox
+	box.Parent = model
+	espBoxes[model] = box
+
+	local tracer = Instance.new("Frame")
+	tracer.AnchorPoint = Vector2.new(0.5, 0.5)
+	tracer.BackgroundColor3 = theme.outline
+	tracer.BorderSizePixel = 0
+	tracer.Visible = false
+	tracer.Parent = gui
+	espTracers[model] = tracer
 
 	local anchor = model:FindFirstChild("Head") or root
 	if anchor then
 		local bb = Instance.new("BillboardGui")
 		bb.Name = "EspTag"
 		bb.Adornee = anchor
-		bb.Size = UDim2.fromOffset(180, 34)
-		bb.StudsOffset = Vector3.new(0, 2.6, 0)
+		bb.Size = UDim2.fromOffset(210, 36)
+		bb.StudsOffset = Vector3.new(0, 2.7, 0)
 		bb.AlwaysOnTop = true
 		bb.Enabled = state.espTag
 		bb.Parent = model
@@ -199,7 +342,7 @@ local function applyEspToModel(model)
 		txt.Text = displayName
 		txt.Parent = bb
 
-		espTags[model] = { gui = bb, label = txt, root = root, name = displayName }
+		espTags[model] = { gui = bb, label = txt, root = root, hum = hum, name = displayName }
 	end
 end
 
@@ -209,6 +352,19 @@ local function refreshEspColors()
 		if hl and hl.Parent then
 			hl.FillColor = theme.fill
 			hl.OutlineColor = theme.outline
+			hl.FillTransparency = state.espFillTrans / 100
+		end
+	end
+	for _, box in pairs(espBoxes) do
+		if box and box.Parent then
+			box.Color3 = theme.outline
+			box.Visible = state.esp and state.espBox
+		end
+	end
+	for _, tr in pairs(espTracers) do
+		if tr and tr.Parent then
+			tr.BackgroundColor3 = theme.outline
+			if not (state.esp and state.espTracer) then tr.Visible = false end
 		end
 	end
 	for _, tag in pairs(espTags) do
@@ -250,7 +406,7 @@ local function setEsp(on)
 	if setters.esp then setters.esp(on) end
 end
 
--- ===================== NOCLIP & FLY =====================
+-- ===================== NOCLIP, FLY, FREEZE, AIRWALK, TRIGGER =====================
 local function setNoclip(on)
 	state.noclip = on
 	local char = player.Character
@@ -288,37 +444,63 @@ local function setFly(on)
 	if setters.fly then setters.fly(on) end
 end
 
--- ===================== AUTO KILL / TOOL =====================
-local function getAuraTarget(myHrp)
-	if not myHrp then return nil end
-	local bestRoot, bestDist = nil, state.auraRange
-
-	for _, m in ipairs(collectAllTargetModels()) do
-		local ok, targetRoot = isValidTargetModel(m)
-		if ok and targetRoot then
-			local dist = (targetRoot.Position - myHrp.Position).Magnitude
-			if dist <= bestDist then
-				bestDist = dist
-				bestRoot = targetRoot
-			end
-		end
+local function setFreeze(on)
+	state.freezeChar = on
+	local _, hrp = getChar()
+	if hrp then
+		hrp.Anchored = on
 	end
-
-	return bestRoot
+	if setters.freezeChar then setters.freezeChar(on) end
 end
 
-local function useEquippedOrBackpackTool(char, hum)
-	if not char or not hum then return end
-	local tool = char:FindFirstChildOfClass("Tool")
-	if not tool then
-		local backpack = player:FindFirstChildOfClass("Backpack")
-		if backpack then
-			tool = backpack:FindFirstChildOfClass("Tool")
-			if tool then
-				hum:EquipTool(tool)
-			end
+local function setAirWalk(on)
+	state.airWalk = on
+	if on then
+		if not airPart then
+			airPart = Instance.new("Part")
+			airPart.Name = "VinhAirPlatform"
+			airPart.Anchored = true
+			airPart.CanCollide = true
+			airPart.Transparency = 0.75
+			airPart.Material = Enum.Material.Neon
+			airPart.Color = Color3.fromRGB(70, 140, 255)
+			airPart.Size = Vector3.new(10, 1, 10)
+			airPart.Parent = workspace
+		end
+	else
+		if airPart then
+			airPart:Destroy()
+			airPart = nil
 		end
 	end
+	if setters.airWalk then setters.airWalk(on) end
+end
+
+local function doDash()
+	local _, hrp = getChar()
+	local camera = workspace.CurrentCamera
+	if hrp and camera and not state.freezeChar then
+		local look = camera.CFrame.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude > 0.05 then
+			hrp.CFrame = hrp.CFrame + flat.Unit * 18
+		end
+	end
+end
+
+local function triggerFireOnce()
+	local char, _, hum = getChar()
+	if not char or not hum or hum.Health <= 0 then return end
+
+	local tool = char:FindFirstChildOfClass("Tool")
+	if not tool and state.autoEquip then
+		local bp = player:FindFirstChildOfClass("Backpack")
+		tool = bp and bp:FindFirstChildOfClass("Tool")
+		if tool then
+			hum:EquipTool(tool)
+		end
+	end
+
 	if tool and tool:IsA("Tool") and tool.Parent == char then
 		pcall(function()
 			tool:Activate()
@@ -326,61 +508,115 @@ local function useEquippedOrBackpackTool(char, hum)
 	end
 end
 
+local function applyFpsBoost()
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
+			obj.Enabled = false
+		elseif obj:IsA("BasePart") then
+			obj.Material = Enum.Material.SmoothPlastic
+		end
+	end
+end
+
 local function resetAll()
 	state.speedOn = false
+	state.sprintBoost = false
+	state.antiSlow = false
 	state.jumpOn = false
 	state.infJump = false
+	state.lowGrav = false
+	state.spinOn = false
 	state.ignoreTeam = false
-	state.auraOn = false
+	state.playersOnly = false
+	state.ignoreCrouch = false
 	state.aim = false
 	state.autoAim = false
+	state.aimPredict = false
+	state.targetLockOn = false
+	state.lockedTargetModel = nil
+	state.targetLine = false
+	state.targetInfoHud = false
+	state.triggerBot = false
 	state.aimHeld = false
+	state.fullbright = false
+	state.noFog = false
+	state.camFov = DEFAULT_FOV
+	state.respawnAtDeath = false
+	state.showPerf = false
+	state.camLockThird = false
+	state.autoEquip = false
+
+	setFreeze(false)
+	setAirWalk(false)
 	setFly(false)
 	setNoclip(false)
 	setEsp(false)
 	applyStats()
+	applyLighting()
 
-	for _, key in ipairs({ "speedOn", "jumpOn", "infJump", "ignoreTeam", "auraOn", "aim", "autoAim" }) do
+	local camera = workspace.CurrentCamera
+	if camera then camera.FieldOfView = DEFAULT_FOV end
+	player.CameraMode = Enum.CameraMode.Classic
+
+	for _, key in ipairs({
+		"speedOn", "sprintBoost", "antiSlow", "jumpOn", "infJump", "lowGrav", "spinOn",
+		"ignoreTeam", "playersOnly", "ignoreCrouch", "aim", "autoAim", "aimPredict",
+		"targetLockOn", "targetLine", "targetInfoHud", "triggerBot", "fullbright", "noFog",
+		"respawnAtDeath", "showPerf", "camLockThird", "autoEquip"
+	}) do
 		if setters[key] then setters[key](false) end
 	end
 end
 
-player.CharacterAdded:Connect(function()
+local function bindDeathHook(char)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.Died:Connect(function()
+			local hrp = char:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				state.lastDeathCFrame = hrp.CFrame
+			end
+		end)
+	end
+end
+
+if player.Character then
+	bindDeathHook(player.Character)
+end
+
+player.CharacterAdded:Connect(function(char)
+	bindDeathHook(char)
 	state.fly = false
 	state.noclip = false
+	state.freezeChar = false
 	bv = nil
 	table.clear(savedCollide)
 	if setters.fly then setters.fly(false) end
 	if setters.noclip then setters.noclip(false) end
-	task.wait(0.4)
+	if setters.freezeChar then setters.freezeChar(false) end
+	task.wait(0.35)
 	applyStats()
+	if state.respawnAtDeath and state.lastDeathCFrame then
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			hrp.CFrame = state.lastDeathCFrame + Vector3.new(0, 3, 0)
+		end
+	end
 end)
 
--- ===================== UI MOI (CHIA TAB GON GANG) =====================
-local gui = Instance.new("ScreenGui")
-gui.Name = "VinhDzMenu"
-gui.ResetOnSpawn = false
-gui.IgnoreGuiInset = true
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.Parent = playerGui
+-- Anti-AFK
+player.Idled:Connect(function()
+	if state.antiAfk then
+		local vu = game:GetService("VirtualUser")
+		pcall(function()
+			vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+			task.wait(0.1)
+			vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+		end)
+	end
+end)
 
-local function corner(o, r)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, r or 8)
-	c.Parent = o
-	return c
-end
-
-local function addStroke(o, color, transparency)
-	local s = Instance.new("UIStroke")
-	s.Color = color or Color3.fromRGB(255, 225, 95)
-	s.Thickness = 1.5
-	s.Transparency = transparency or 0.4
-	s.Parent = o
-	return s
-end
-
--- Vong FOV
+-- ===================== HUD PHU (FOV, TARGET LINE, PERF, TARGET INFO) =====================
 local circle = Instance.new("Frame")
 circle.AnchorPoint = Vector2.new(0.5, 0.5)
 circle.Position = UDim2.fromScale(0.5, 0.5)
@@ -389,9 +625,43 @@ circle.BackgroundTransparency = 1
 circle.Visible = false
 circle.Parent = gui
 corner(circle, 9999)
-addStroke(circle, Color3.fromRGB(255, 255, 255), 0.25)
+local fovStroke = addStroke(circle, fovColors[1].color, 0.25)
 
--- Nut mo menu
+local targetLineFrame = Instance.new("Frame")
+targetLineFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+targetLineFrame.BackgroundColor3 = Color3.fromRGB(255, 90, 90)
+targetLineFrame.BorderSizePixel = 0
+targetLineFrame.Visible = false
+targetLineFrame.Parent = gui
+
+local targetHud = Instance.new("TextLabel")
+targetHud.AnchorPoint = Vector2.new(0.5, 0)
+targetHud.Position = UDim2.new(0.5, 0, 0, 12)
+targetHud.Size = UDim2.fromOffset(260, 28)
+targetHud.BackgroundColor3 = uiThemes[1].card
+targetHud.BackgroundTransparency = 0.2
+targetHud.TextColor3 = Color3.fromRGB(255, 225, 95)
+targetHud.Font = Enum.Font.GothamBold
+targetHud.TextSize = 13
+targetHud.Text = "Muc tieu: Khong co"
+targetHud.Visible = false
+targetHud.Parent = gui
+corner(targetHud, 8)
+
+local perfHud = Instance.new("TextLabel")
+perfHud.Position = UDim2.new(0, 12, 0, 12)
+perfHud.Size = UDim2.fromOffset(170, 26)
+perfHud.BackgroundColor3 = uiThemes[1].card
+perfHud.BackgroundTransparency = 0.25
+perfHud.TextColor3 = Color3.fromRGB(120, 240, 160)
+perfHud.Font = Enum.Font.GothamBold
+perfHud.TextSize = 12
+perfHud.Text = "FPS: 60 | Ping: 0ms"
+perfHud.Visible = false
+perfHud.Parent = gui
+corner(perfHud, 8)
+
+-- ===================== MENU CHINH =====================
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.fromOffset(114, 36)
 toggleBtn.Position = UDim2.new(0, 12, 0.5, -18)
@@ -404,19 +674,17 @@ toggleBtn.Parent = gui
 corner(toggleBtn, 10)
 addStroke(toggleBtn, Color3.fromRGB(255, 225, 95), 0.35)
 
--- Khung chinh
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(290, 350)
-frame.Position = UDim2.new(0, 136, 0.5, -175)
+frame.Size = UDim2.fromOffset(310, 370)
+frame.Position = UDim2.new(0, 136, 0.5, -185)
 frame.BackgroundColor3 = uiThemes[1].bg
 frame.Active = true
 frame.Parent = gui
 corner(frame, 12)
 addStroke(frame, Color3.fromRGB(255, 225, 95), 0.45)
 
--- Header keo tha
 local header = Instance.new("TextButton")
-header.Size = UDim2.new(1, -40, 0, 36)
+header.Size = UDim2.new(1, -68, 0, 36)
 header.Position = UDim2.new(0, 8, 0, 0)
 header.BackgroundTransparency = 1
 header.Text = "VINHDZ MENU"
@@ -425,6 +693,17 @@ header.Font = Enum.Font.GothamBold
 header.TextSize = 15
 header.TextXAlignment = Enum.TextXAlignment.Left
 header.Parent = frame
+
+local miniBtn = Instance.new("TextButton")
+miniBtn.Size = UDim2.fromOffset(26, 26)
+miniBtn.Position = UDim2.new(1, -60, 0, 5)
+miniBtn.BackgroundColor3 = Color3.fromRGB(65, 72, 92)
+miniBtn.TextColor3 = Color3.new(1, 1, 1)
+miniBtn.Font = Enum.Font.GothamBold
+miniBtn.TextSize = 14
+miniBtn.Text = "-"
+miniBtn.Parent = frame
+corner(miniBtn, 6)
 
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.fromOffset(26, 26)
@@ -437,6 +716,13 @@ closeBtn.Text = "X"
 closeBtn.Parent = frame
 corner(closeBtn, 6)
 closeBtn.MouseButton1Click:Connect(function() frame.Visible = false end)
+
+local minimized = false
+miniBtn.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	frame.Size = minimized and UDim2.fromOffset(310, 38) or UDim2.fromOffset(310, 370)
+	miniBtn.Text = minimized and "+" or "-"
+end)
 
 do
 	local dragging, dragStart, startPos
@@ -460,16 +746,16 @@ do
 	end)
 end
 
--- Thanh Tab
+-- Thanh Tab (4 tab)
 local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, -16, 0, 30)
-tabBar.Position = UDim2.new(0, 8, 0, 38)
+tabBar.Size = UDim2.new(1, -14, 0, 30)
+tabBar.Position = UDim2.new(0, 7, 0, 38)
 tabBar.BackgroundTransparency = 1
 tabBar.Parent = frame
 
 local tabLayout = Instance.new("UIListLayout")
 tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 6)
+tabLayout.Padding = UDim.new(0, 4)
 tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 tabLayout.Parent = tabBar
 
@@ -498,9 +784,9 @@ local function createPage(name)
 	pages[name] = { scroll = scroll, order = 0 }
 
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.32, 0, 1, 0)
+	btn.Size = UDim2.new(0.24, 0, 1, 0)
 	btn.Font = Enum.Font.GothamBold
-	btn.TextSize = 12
+	btn.TextSize = 11
 	btn.TextColor3 = Color3.new(1, 1, 1)
 	btn.Text = name
 	btn.Parent = tabBar
@@ -508,6 +794,11 @@ local function createPage(name)
 	tabButtons[name] = btn
 
 	btn.MouseButton1Click:Connect(function()
+		if minimized then
+			minimized = false
+			frame.Size = UDim2.fromOffset(310, 370)
+			miniBtn.Text = "-"
+		end
 		activeTab = name
 		for tabName, page in pairs(pages) do
 			page.scroll.Visible = (tabName == activeTab)
@@ -524,11 +815,14 @@ end
 local pageCombat = createPage("Chien dau")
 local pageMove = createPage("Di chuyen")
 local pageVisual = createPage("Hien thi")
+local pageUtil = createPage("Tien ich")
 
 local function applyUiTheme()
 	local t = uiThemes[state.uiThemeIdx]
 	frame.BackgroundColor3 = t.bg
 	toggleBtn.BackgroundColor3 = t.card
+	targetHud.BackgroundColor3 = t.card
+	perfHud.BackgroundColor3 = t.card
 	for tabName, b in pairs(tabButtons) do
 		b.BackgroundColor3 = (tabName == activeTab) and t.accent or t.card
 	end
@@ -692,35 +986,64 @@ local function makeSliderBlock(page, title, minV, maxV, init, onValue, onToggle,
 end
 
 -- ===== TAB CHIEN DAU =====
-setters.auraOn = makeToggleRow(pageCombat, "Auto Kill tat ca (Tool)", function(on)
-	state.auraOn = on
-	if not on and state.fly and state.auraFlyUp then
-		setFly(false)
-	end
-end)
 setters.ignoreTeam = makeToggleRow(pageCombat, "Bo qua cung team", function(on)
 	state.ignoreTeam = on
 	if state.esp then syncEspTargets() end
 end)
-makeToggleRow(pageCombat, "Tu rut & kich hoat Tool", function(on) state.auraUseTool = on end, true)
-makeToggleRow(pageCombat, "Tu bam muc tieu", function(on) state.auraFollow = on end, true)
-makeToggleRow(pageCombat, "Bay theo muc tieu", function(on) state.auraFlyUp = on end, true)
-makeSliderBlock(pageCombat, "Do cao bay Auto Kill", -5, 25, state.auraHoverOffset, function(v) state.auraHoverOffset = v end, nil, "m")
-makeSliderBlock(pageCombat, "Tam Auto Kill", 5, 50, state.auraRange, function(v) state.auraRange = v end, nil, "m")
-makeSliderBlock(pageCombat, "Nhip danh (ms)", 80, 1000, math.floor(state.auraCooldown * 1000), function(v)
-	state.auraCooldown = v / 1000
-end, nil, "ms")
+setters.playersOnly = makeToggleRow(pageCombat, "Chi muc tieu nguoi choi", function(on)
+	state.playersOnly = on
+	collectAllTargetModels(true)
+	if state.esp then syncEspTargets() end
+end)
+setters.ignoreCrouch = makeToggleRow(pageCombat, "Bo qua muc tieu ngoi", function(on) state.ignoreCrouch = on end)
 setters.aim = makeToggleRow(pageCombat, "Ho tro ngam", function(on) state.aim = on end)
 setters.autoAim = makeToggleRow(pageCombat, "Auto ngam lien tuc", function(on) state.autoAim = on end)
+setters.triggerBot = makeToggleRow(pageCombat, "Auto ban khi co dich", function(on) state.triggerBot = on end)
+makeToggleRow(pageCombat, "Chi auto ban trong FOV", function(on) state.triggerFovOnly = on end, true)
+makeSliderBlock(pageCombat, "Nhip auto ban (ms)", 50, 800, math.floor(state.triggerCooldown * 1000), function(v)
+	state.triggerCooldown = v / 1000
+end, nil, "ms")
+setters.targetLockOn = makeToggleRow(pageCombat, "Khoa muc tieu (Phim T)", function(on)
+	state.targetLockOn = on
+	if not on then state.lockedTargetModel = nil end
+end)
+makeActionRow(pageCombat, "Diem ngam: Dau", Color3.fromRGB(65, 95, 145), function(btn)
+	if state.aimPartMode == "Head" then
+		state.aimPartMode = "HumanoidRootPart"
+		btn.Text = "Diem ngam: Than"
+	else
+		state.aimPartMode = "Head"
+		btn.Text = "Diem ngam: Dau"
+	end
+end)
+setters.aimPredict = makeToggleRow(pageCombat, "Du doan huong di chuyen", function(on) state.aimPredict = on end)
+setters.targetLine = makeToggleRow(pageCombat, "Duong ke toi muc tieu", function(on)
+	state.targetLine = on
+	if not on then targetLineFrame.Visible = false end
+end)
+setters.targetInfoHud = makeToggleRow(pageCombat, "Hien thong tin muc tieu", function(on)
+	state.targetInfoHud = on
+	targetHud.Visible = on
+end)
+makeSliderBlock(pageCombat, "Do muot ngam", 4, 40, state.aimSmooth, function(v) state.aimSmooth = v end)
 makeSliderBlock(pageCombat, "Vong FOV ngam", 50, 400, state.fov, function(v)
 	state.fov = v
 	circle.Size = UDim2.fromOffset(v * 2, v * 2)
+end)
+makeActionRow(pageCombat, "Mau vong FOV: " .. fovColors[1].name, Color3.fromRGB(70, 75, 95), function(btn)
+	state.fovColorIdx = (state.fovColorIdx % #fovColors) + 1
+	btn.Text = "Mau vong FOV: " .. fovColors[state.fovColorIdx].name
+	fovStroke.Color = fovColors[state.fovColorIdx].color
 end)
 
 -- ===== TAB DI CHUYEN =====
 setters.speedOn = makeSliderBlock(pageMove, "Toc do chay", 16, 200, state.speed,
 	function(v) state.speed = v applyStats() end,
 	function(on) state.speedOn = on applyStats() end)
+setters.sprintBoost = makeSliderBlock(pageMove, "Chay nhanh (Shift)", 30, 250, state.sprintSpeed,
+	function(v) state.sprintSpeed = v applyStats() end,
+	function(on) state.sprintBoost = on applyStats() end)
+setters.antiSlow = makeToggleRow(pageMove, "Chong giam toc do", function(on) state.antiSlow = on end)
 setters.jumpOn = makeSliderBlock(pageMove, "Do cao nhay", 50, 300, state.jump,
 	function(v) state.jump = v applyStats() end,
 	function(on) state.jumpOn = on applyStats() end)
@@ -728,6 +1051,29 @@ setters.infJump = makeToggleRow(pageMove, "Nhay vo han", function(on) state.infJ
 setters.noclip = makeToggleRow(pageMove, "Xuyen tuong (N)", function(on) setNoclip(on) end)
 setters.fly = makeToggleRow(pageMove, "Bay (F / joystick)", function(on) setFly(on) end)
 makeSliderBlock(pageMove, "Toc do bay", 10, 200, state.flySpeed, function(v) state.flySpeed = v end)
+setters.airWalk = makeToggleRow(pageMove, "Di bo tren khong", function(on) setAirWalk(on) end)
+setters.freezeChar = makeToggleRow(pageMove, "Dong bang nhan vat", function(on) setFreeze(on) end)
+setters.lowGrav = makeSliderBlock(pageMove, "Trong luc thap", 10, 196, state.gravValue,
+	function(v) state.gravValue = v applyStats() end,
+	function(on) state.lowGrav = on applyStats() end)
+setters.spinOn = makeSliderBlock(pageMove, "Xoay nhan vat", 2, 40, state.spinSpeed,
+	function(v) state.spinSpeed = v end,
+	function(on) state.spinOn = on end)
+makeActionRow(pageMove, "Luot nhanh ve phia truoc (Q)", Color3.fromRGB(56, 130, 210), doDash)
+makeActionRow(pageMove, "Luu vi tri hien tai", Color3.fromRGB(46, 150, 110), function(btn)
+	local _, hrp = getChar()
+	if hrp then
+		state.savedCFrame = hrp.CFrame
+		btn.Text = "Da luu vi tri!"
+		task.delay(1, function() if btn then btn.Text = "Luu vi tri hien tai" end end)
+	end
+end)
+makeActionRow(pageMove, "Dich chuyen toi vi tri da luu", Color3.fromRGB(95, 110, 185), function()
+	local _, hrp = getChar()
+	if hrp and state.savedCFrame then
+		hrp.CFrame = state.savedCFrame + Vector3.new(0, 2, 0)
+	end
+end)
 
 -- ===== TAB HIEN THI =====
 setters.esp = makeToggleRow(pageVisual, "ESP tat ca muc tieu", function(on) setEsp(on) end)
@@ -735,18 +1081,69 @@ makeToggleRow(pageVisual, "Ten + Khoang cach ESP", function(on)
 	state.espTag = on
 	refreshEspColors()
 end, true)
+makeToggleRow(pageVisual, "Hien mau tren ESP", function(on)
+	state.espHealth = on
+end, true)
+makeToggleRow(pageVisual, "Khung hop ESP (Box)", function(on)
+	state.espBox = on
+	refreshEspColors()
+end)
+makeToggleRow(pageVisual, "Tia dan huong ESP (Tracer)", function(on)
+	state.espTracer = on
+	refreshEspColors()
+end)
+makeSliderBlock(pageVisual, "Tam hien ESP", 50, 2000, state.espMaxDist, function(v)
+	state.espMaxDist = v
+	if state.esp then syncEspTargets() end
+end, nil, "m")
+makeSliderBlock(pageVisual, "Do mo phu ESP", 0, 95, state.espFillTrans, function(v)
+	state.espFillTrans = v
+	refreshEspColors()
+end, nil, "%")
 makeActionRow(pageVisual, "Mau ESP: " .. espThemes[1].name, Color3.fromRGB(65, 95, 145), function(btn)
 	state.espColorIdx = (state.espColorIdx % #espThemes) + 1
 	btn.Text = "Mau ESP: " .. espThemes[state.espColorIdx].name
 	refreshEspColors()
 end)
 makeToggleRow(pageVisual, "Hien vong FOV", function(on) state.showFov = on end, true)
+makeSliderBlock(pageVisual, "Goc nhin Camera FOV", 50, 120, state.camFov, function(v)
+	state.camFov = v
+	local cam = workspace.CurrentCamera
+	if cam then cam.FieldOfView = v end
+end)
+setters.fullbright = makeToggleRow(pageVisual, "Sang toan ban do", function(on)
+	state.fullbright = on
+	applyLighting()
+end)
+setters.noFog = makeToggleRow(pageVisual, "Xoa suong mu", function(on)
+	state.noFog = on
+	applyLighting()
+end)
 makeActionRow(pageVisual, "Mau giao dien: " .. uiThemes[1].name, Color3.fromRGB(70, 75, 95), function(btn)
 	state.uiThemeIdx = (state.uiThemeIdx % #uiThemes) + 1
 	btn.Text = "Mau giao dien: " .. uiThemes[state.uiThemeIdx].name
 	applyUiTheme()
 end)
-makeActionRow(pageVisual, "Reset tat ca ve mac dinh", Color3.fromRGB(175, 65, 65), resetAll)
+
+-- ===== TAB TIEN ICH =====
+makeToggleRow(pageUtil, "Chong AFK tu dong", function(on) state.antiAfk = on end, true)
+setters.respawnAtDeath = makeToggleRow(pageUtil, "Hoi sinh tai cho chet", function(on) state.respawnAtDeath = on end)
+setters.showPerf = makeToggleRow(pageUtil, "Hien FPS & Ping", function(on)
+	state.showPerf = on
+	perfHud.Visible = on
+end)
+setters.camLockThird = makeToggleRow(pageUtil, "Khoa goc nhin thu 3", function(on)
+	state.camLockThird = on
+	player.CameraMode = Enum.CameraMode.Classic
+	if on then
+		player.CameraMinZoomDistance = 8
+	else
+		player.CameraMinZoomDistance = 0.5
+	end
+end)
+setters.autoEquip = makeToggleRow(pageUtil, "Tu trang bi Tool trong tui", function(on) state.autoEquip = on end)
+makeActionRow(pageUtil, "Giam hieu ung / Tang FPS", Color3.fromRGB(56, 145, 130), applyFpsBoost)
+makeActionRow(pageUtil, "Reset tat ca ve mac dinh", Color3.fromRGB(175, 65, 65), resetAll)
 
 applyUiTheme()
 toggleBtn.MouseButton1Click:Connect(function() frame.Visible = not frame.Visible end)
@@ -783,6 +1180,69 @@ local upBtn = holdButton("LEN", UDim2.new(1, -86, 1, -260), Color3.fromRGB(60, 1
 local downBtn = holdButton("XUONG", UDim2.new(1, -86, 1, -184), Color3.fromRGB(60, 120, 220), "down")
 local aimBtn = holdButton("NGAM", UDim2.new(1, -168, 1, -184), Color3.fromRGB(210, 70, 70), "aimHeld")
 
+local dashBtn = Instance.new("TextButton")
+dashBtn.Size = UDim2.fromOffset(66, 66)
+dashBtn.Position = UDim2.new(1, -168, 1, -260)
+dashBtn.BackgroundColor3 = Color3.fromRGB(56, 130, 210)
+dashBtn.BackgroundTransparency = 0.25
+dashBtn.TextColor3 = Color3.new(1, 1, 1)
+dashBtn.Font = Enum.Font.GothamBold
+dashBtn.TextSize = 14
+dashBtn.Text = "LUOT"
+dashBtn.Visible = isTouch
+dashBtn.Parent = gui
+corner(dashBtn, 33)
+dashBtn.MouseButton1Click:Connect(doDash)
+
+-- ===== TIM MUC TIEU & PHIM TAT =====
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function getAimPartFromModel(model, root)
+	if state.aimPartMode == "Head" then
+		return model:FindFirstChild("Head") or root
+	end
+	return root
+end
+
+local function getTarget()
+	local camera = workspace.CurrentCamera
+	if not camera then return nil, nil end
+
+	if state.targetLockOn and state.lockedTargetModel then
+		local ok, root = isValidTargetModel(state.lockedTargetModel)
+		if ok and root then
+			return getAimPartFromModel(state.lockedTargetModel, root), state.lockedTargetModel
+		else
+			state.lockedTargetModel = nil
+		end
+	end
+
+	local center = camera.ViewportSize / 2
+	local best, bestModel, bestDist = nil, nil, state.fov
+	local myChar = player.Character
+
+	for _, m in ipairs(collectAllTargetModels()) do
+		local ok, root = isValidTargetModel(m)
+		if ok and root then
+			local aimPart = getAimPartFromModel(m, root)
+			local pos, onScreen = camera:WorldToViewportPoint(aimPart.Position)
+			if onScreen then
+				local d = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+				if d < bestDist then
+					rayParams.FilterDescendantsInstances = { myChar, m }
+					local blocked = workspace:Raycast(camera.CFrame.Position, aimPart.Position - camera.CFrame.Position, rayParams)
+					if not blocked then
+						best, bestModel, bestDist = aimPart, m, d
+					end
+				end
+			end
+		end
+	end
+
+	return best, bestModel
+end
+
 UIS.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == Enum.KeyCode.M then
@@ -791,6 +1251,23 @@ UIS.InputBegan:Connect(function(input, processed)
 		setFly(not state.fly)
 	elseif input.KeyCode == Enum.KeyCode.N then
 		setNoclip(not state.noclip)
+	elseif input.KeyCode == Enum.KeyCode.Q then
+		doDash()
+	elseif input.KeyCode == Enum.KeyCode.T and state.targetLockOn then
+		if state.lockedTargetModel then
+			state.lockedTargetModel = nil
+		else
+			local _, m = getTarget()
+			state.lockedTargetModel = m
+		end
+	elseif input.KeyCode == Enum.KeyCode.LeftShift and state.sprintBoost then
+		applyStats()
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift and state.sprintBoost then
+		applyStats()
 	end
 end)
 
@@ -804,97 +1281,94 @@ UIS.JumpRequest:Connect(function()
 end)
 
 -- ===== VONG LAP CHINH =====
-local rayParams = RaycastParams.new()
-rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
-local function getTarget()
-	local camera = workspace.CurrentCamera
-	if not camera then return nil end
-	local center = camera.ViewportSize / 2
-	local best, bestDist = nil, state.fov
-	local myChar = player.Character
-
-	for _, m in ipairs(collectAllTargetModels()) do
-		local ok, root = isValidTargetModel(m)
-		if ok and root then
-			local aimPart = m:FindFirstChild("Head") or root
-			local pos, onScreen = camera:WorldToViewportPoint(aimPart.Position)
-			if onScreen then
-				local d = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-				if d < bestDist then
-					rayParams.FilterDescendantsInstances = { myChar, m }
-					local blocked = workspace:Raycast(camera.CFrame.Position, aimPart.Position - camera.CFrame.Position, rayParams)
-					if not blocked then
-						best, bestDist = aimPart, d
-					end
-				end
-			end
-		end
-	end
-
-	return best
-end
-
 local lastEspSync = 0
+local lastPerfUpdate = 0
+local frameCounter = 0
 
 RunService.RenderStepped:Connect(function(dt)
 	local camera = workspace.CurrentCamera
 	local char, myHrp, hum = getChar()
 	local now = os.clock()
 
-	-- Cap nhat danh sach ESP dinh ky de bat ca NPC moi spawn
+	-- Cap nhat FPS & Ping
+	frameCounter += 1
+	if state.showPerf and now - lastPerfUpdate >= 0.5 then
+		local fps = math.floor(frameCounter / (now - lastPerfUpdate) + 0.5)
+		frameCounter = 0
+		lastPerfUpdate = now
+		local ping = 0
+		pcall(function()
+			ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue() + 0.5)
+		end)
+		perfHud.Text = string.format("FPS: %d | Ping: %dms", fps, ping)
+	end
+
+	-- Chong giam toc do & tu trang bi tool
+	if hum and hum.Health > 0 then
+		if state.antiSlow then
+			local targetSpd = state.speedOn and state.speed or DEFAULT_SPEED
+			if hum.WalkSpeed < targetSpd then
+				hum.WalkSpeed = targetSpd
+			end
+		end
+		if state.autoEquip and char and not char:FindFirstChildOfClass("Tool") then
+			local bp = player:FindFirstChildOfClass("Backpack")
+			local tool = bp and bp:FindFirstChildOfClass("Tool")
+			if tool then
+				hum:EquipTool(tool)
+			end
+		end
+	end
+
+	-- AirWalk & Spin
+	if state.airWalk and airPart and myHrp then
+		airPart.Position = Vector3.new(myHrp.Position.X, myHrp.Position.Y - 3.5, myHrp.Position.Z)
+	end
+	if state.spinOn and myHrp and not state.freezeChar then
+		myHrp.CFrame = myHrp.CFrame * CFrame.Angles(0, math.rad(state.spinSpeed), 0)
+	end
+
+	-- Cap nhat ESP
 	if state.esp and now - lastEspSync >= 0.5 then
 		lastEspSync = now
 		syncEspTargets()
 	end
 
-	-- Cap nhat khoang cach ESP
-	if state.esp and state.espTag then
+	if state.esp then
 		local origin = myHrp and myHrp.Position or (camera and camera.CFrame.Position or Vector3.zero)
+		local vp = camera and camera.ViewportSize or Vector2.new(1280, 720)
+		local tracerStart = Vector2.new(vp.X / 2, vp.Y)
+
 		for model, tag in pairs(espTags) do
-			local ok, root = isValidTargetModel(model)
-			if ok and root and tag.label then
-				local dist = math.floor((root.Position - origin).Magnitude + 0.5)
-				tag.label.Text = string.format("%s [%dm]", tag.name, dist)
-			end
-		end
-	end
-
-	-- Auto Kill dung Tool + bay theo muc tieu
-	if state.auraOn and char and myHrp and hum and hum.Health > 0 then
-		local auraTargetRoot = getAuraTarget(myHrp)
-		if auraTargetRoot then
-			local targetPos = auraTargetRoot.Position + Vector3.new(0, state.auraHoverOffset, 0)
-			local toTarget = targetPos - myHrp.Position
-			local flatOffset = Vector3.new(toTarget.X, 0, toTarget.Z)
-			local distFlat = flatOffset.Magnitude
-
-			-- Xoay mat huong ve muc tieu
-			local lookPos = Vector3.new(auraTargetRoot.Position.X, myHrp.Position.Y, auraTargetRoot.Position.Z)
-			if distFlat > 0.05 then
-				myHrp.CFrame = myHrp.CFrame:Lerp(CFrame.lookAt(myHrp.Position, lookPos), 1 - math.exp(-22 * dt))
-			end
-
-			if state.auraFlyUp and not state.fly then
-				setFly(true)
-			end
-
-			if state.fly and bv and state.auraFlyUp then
-				local moveVec = Vector3.zero
-				if state.auraFollow and toTarget.Magnitude > 3.5 then
-					moveVec = toTarget.Unit * math.max(state.flySpeed, 45)
+			local ok, root, tHum = isValidTargetModel(model)
+			if ok and root then
+				if state.espTag and tag.label then
+					local dist = math.floor((root.Position - origin).Magnitude + 0.5)
+					if state.espHealth and tHum then
+						tag.label.Text = string.format("%s [%dm] | %d HP", tag.name, dist, math.floor(tHum.Health + 0.5))
+					else
+						tag.label.Text = string.format("%s [%dm]", tag.name, dist)
+					end
 				end
-				bv.Velocity = bv.Velocity:Lerp(moveVec, 1 - math.exp(-16 * dt))
-			elseif state.auraFollow and distFlat > 4.5 then
-				hum:Move(flatOffset.Unit, false)
-			end
 
-			if state.auraUseTool and now - lastAuraHit >= state.auraCooldown then
-				lastAuraHit = now
-				useEquippedOrBackpackTool(char, hum)
+				local tr = espTracers[model]
+				if tr and state.espTracer and camera then
+					local pos, onScreen = camera:WorldToViewportPoint(root.Position)
+					if onScreen and pos.Z > 0 then
+						local p2 = Vector2.new(pos.X, pos.Y)
+						local delta = p2 - tracerStart
+						local mid = (tracerStart + p2) / 2
+						tr.Visible = true
+						tr.Position = UDim2.fromOffset(mid.X, mid.Y)
+						tr.Size = UDim2.fromOffset(delta.Magnitude, 1.5)
+						tr.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+					else
+						tr.Visible = false
+					end
+				elseif tr then
+					tr.Visible = false
+				end
 			end
-		elseif state.fly and state.auraFlyUp and bv then
-			bv.Velocity = bv.Velocity:Lerp(Vector3.zero, 1 - math.exp(-12 * dt))
 		end
 	end
 
@@ -917,9 +1391,8 @@ RunService.RenderStepped:Connect(function(dt)
 		table.clear(savedCollide)
 	end
 
-	-- Bay thu cong khi khong bi Auto Kill bay keo
-	local auraControllingFlight = state.auraOn and state.auraFlyUp and (getAuraTarget(myHrp) ~= nil)
-	if state.fly and bv and hum and not auraControllingFlight and camera then
+	-- Bay thu cong
+	if state.fly and bv and hum and camera then
 		local move = hum.MoveDirection
 		local look = camera.CFrame.LookVector
 		local flat = Vector3.new(look.X, 0, look.Z)
@@ -936,19 +1409,78 @@ RunService.RenderStepped:Connect(function(dt)
 	aimBtn.Visible = isTouch and state.aim and not state.autoAim
 	circle.Visible = state.aim and state.showFov
 
+	local aimPart, aimModel = getTarget()
+
+	-- Cap nhat HUD thong tin muc tieu & duong ke
+	if state.targetInfoHud then
+		if aimModel then
+			local _, _, tHum, tPlr = isValidTargetModel(aimModel)
+			local tName = tPlr and tPlr.DisplayName or aimModel.Name
+			local hp = tHum and math.floor(tHum.Health + 0.5) or 0
+			targetHud.Text = string.format("Muc tieu: %s (%d HP)", tName, hp)
+		else
+			targetHud.Text = "Muc tieu: Khong co"
+		end
+	end
+
+	if state.targetLine and aimPart and camera then
+		local pos, onScreen = camera:WorldToViewportPoint(aimPart.Position)
+		if onScreen and pos.Z > 0 then
+			local startP = camera.ViewportSize / 2
+			local endP = Vector2.new(pos.X, pos.Y)
+			local delta = endP - startP
+			local mid = (startP + endP) / 2
+			targetLineFrame.Visible = true
+			targetLineFrame.Position = UDim2.fromOffset(mid.X, mid.Y)
+			targetLineFrame.Size = UDim2.fromOffset(delta.Magnitude, 2)
+			targetLineFrame.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+		else
+			targetLineFrame.Visible = false
+		end
+	else
+		targetLineFrame.Visible = false
+	end
+
 	local shouldAim = state.aim and (
 		state.autoAim
 		or UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
 		or state.aimHeld
 	)
 
-	if shouldAim and camera then
-		local aimPart = getTarget()
-		if aimPart then
-			local target = CFrame.lookAt(camera.CFrame.Position, aimPart.Position)
-			camera.CFrame = camera.CFrame:Lerp(target, 1 - math.exp(-18 * dt))
+	if shouldAim and camera and aimPart then
+		local aimPos = aimPart.Position
+		if state.aimPredict then
+			local vel = aimPart.AssemblyLinearVelocity
+			aimPos += vel * 0.12
+		end
+		local target = CFrame.lookAt(camera.CFrame.Position, aimPos)
+		camera.CFrame = camera.CFrame:Lerp(target, 1 - math.exp(-state.aimSmooth * dt))
+	end
+
+	-- Auto ban khi co dich
+	if state.triggerBot and aimPart and camera and (now - lastTriggerShot >= state.triggerCooldown) then
+		local canShoot = true
+		if state.triggerFovOnly then
+			local pos, onScreen = camera:WorldToViewportPoint(aimPart.Position)
+			if not onScreen or pos.Z <= 0 then
+				canShoot = false
+			else
+				local center = camera.ViewportSize / 2
+				local dist2D = (Vector2.new(pos.X, pos.Y) - center).Magnitude
+				if dist2D > state.fov then
+					canShoot = false
+				end
+			end
+		end
+
+		if canShoot then
+			lastTriggerShot = now
+			triggerFireOnce()
 		end
 	end
 end)
 
-task.defer(applyStats)
+task.defer(function()
+	applyStats()
+	applyLighting()
+end)
