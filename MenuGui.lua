@@ -38,9 +38,9 @@ local fovColors = {
 }
 
 local uiThemes = {
-	{ name = "Toi chuan", bg = Color3.fromRGB(22, 23, 30), card = Color3.fromRGB(34, 36, 46), accent = Color3.fromRGB(70, 140, 255) },
-	{ name = "Xanh bien", bg = Color3.fromRGB(18, 26, 38), card = Color3.fromRGB(28, 40, 58), accent = Color3.fromRGB(56, 189, 248) },
-	{ name = "Do do", bg = Color3.fromRGB(34, 20, 26), card = Color3.fromRGB(50, 30, 38), accent = Color3.fromRGB(244, 63, 94) },
+	{ name = "Toi chuan", bg = Color3.fromRGB(18, 20, 27), card = Color3.fromRGB(30, 33, 44), accent = Color3.fromRGB(64, 156, 255) },
+	{ name = "Xanh bien", bg = Color3.fromRGB(15, 24, 36), card = Color3.fromRGB(25, 39, 58), accent = Color3.fromRGB(56, 189, 248) },
+	{ name = "Do do", bg = Color3.fromRGB(29, 17, 23), card = Color3.fromRGB(45, 27, 36), accent = Color3.fromRGB(244, 63, 94) },
 }
 
 local state = {
@@ -81,7 +81,7 @@ local state = {
 	espBox = false,
 	espTracer = false,
 	espMaxDist = 500,
-	espFillTrans = 65, -- %
+	espFillTrans = 65,
 	espColorIdx = 1,
 	camFov = 70,
 	fullbright = false,
@@ -109,7 +109,6 @@ local uiCards = {}
 local uiFills = {}
 local lastTriggerShot = 0
 
--- Xoa UI cu neu trung
 local playerGui = player:WaitForChild("PlayerGui")
 local oldGui = playerGui:FindFirstChild("VinhDzMenu")
 if oldGui then
@@ -248,7 +247,7 @@ end
 local function addStroke(o, color, transparency, thickness)
 	local s = Instance.new("UIStroke")
 	s.Color = color or Color3.fromRGB(255, 225, 95)
-	s.Thickness = thickness or 1.5
+	s.Thickness = thickness or 1.2
 	s.Transparency = transparency or 0.4
 	s.Parent = o
 	return s
@@ -256,22 +255,13 @@ end
 
 -- ===================== ESP & VISUAL OVERLAYS =====================
 local function clearEspForKey(key)
-	if espHighlights[key] then
-		espHighlights[key]:Destroy()
-		espHighlights[key] = nil
-	end
+	if espHighlights[key] then espHighlights[key]:Destroy(); espHighlights[key] = nil end
 	if espTags[key] then
 		if espTags[key].gui then espTags[key].gui:Destroy() end
 		espTags[key] = nil
 	end
-	if espBoxes[key] then
-		espBoxes[key]:Destroy()
-		espBoxes[key] = nil
-	end
-	if espTracers[key] then
-		espTracers[key]:Destroy()
-		espTracers[key] = nil
-	end
+	if espBoxes[key] then espBoxes[key]:Destroy(); espBoxes[key] = nil end
+	if espTracers[key] then espTracers[key]:Destroy(); espTracers[key] = nil end
 end
 
 local function clearAllEsp()
@@ -398,11 +388,7 @@ end
 
 local function setEsp(on)
 	state.esp = on
-	if on then
-		syncEspTargets()
-	else
-		clearAllEsp()
-	end
+	if on then syncEspTargets() else clearAllEsp() end
 	if setters.esp then setters.esp(on) end
 end
 
@@ -412,9 +398,7 @@ local function setNoclip(on)
 	local char = player.Character
 	if not on and char then
 		for part, canCollide in pairs(savedCollide) do
-			if part and part.Parent then
-				part.CanCollide = canCollide
-			end
+			if part and part.Parent then part.CanCollide = canCollide end
 		end
 		table.clear(savedCollide)
 	end
@@ -434,10 +418,7 @@ local function setFly(on)
 		end
 		hum.PlatformStand = true
 	else
-		if bv then
-			bv:Destroy()
-			bv = nil
-		end
+		if bv then bv:Destroy(); bv = nil end
 		hum.PlatformStand = false
 		state.up, state.down = false, false
 	end
@@ -447,9 +428,7 @@ end
 local function setFreeze(on)
 	state.freezeChar = on
 	local _, hrp = getChar()
-	if hrp then
-		hrp.Anchored = on
-	end
+	if hrp then hrp.Anchored = on end
 	if setters.freezeChar then setters.freezeChar(on) end
 end
 
@@ -461,17 +440,14 @@ local function setAirWalk(on)
 			airPart.Name = "VinhAirPlatform"
 			airPart.Anchored = true
 			airPart.CanCollide = true
-			airPart.Transparency = 0.75
+			airPart.Transparency = 0.72
 			airPart.Material = Enum.Material.Neon
-			airPart.Color = Color3.fromRGB(70, 140, 255)
+			airPart.Color = Color3.fromRGB(64, 156, 255)
 			airPart.Size = Vector3.new(10, 1, 10)
 			airPart.Parent = workspace
 		end
 	else
-		if airPart then
-			airPart:Destroy()
-			airPart = nil
-		end
+		if airPart then airPart:Destroy(); airPart = nil end
 	end
 	if setters.airWalk then setters.airWalk(on) end
 end
@@ -496,15 +472,11 @@ local function triggerFireOnce()
 	if not tool and state.autoEquip then
 		local bp = player:FindFirstChildOfClass("Backpack")
 		tool = bp and bp:FindFirstChildOfClass("Tool")
-		if tool then
-			hum:EquipTool(tool)
-		end
+		if tool then hum:EquipTool(tool) end
 	end
 
 	if tool and tool:IsA("Tool") and tool.Parent == char then
-		pcall(function()
-			tool:Activate()
-		end)
+		pcall(function() tool:Activate() end)
 	end
 end
 
@@ -573,16 +545,12 @@ local function bindDeathHook(char)
 	if hum then
 		hum.Died:Connect(function()
 			local hrp = char:FindFirstChild("HumanoidRootPart")
-			if hrp then
-				state.lastDeathCFrame = hrp.CFrame
-			end
+			if hrp then state.lastDeathCFrame = hrp.CFrame end
 		end)
 	end
 end
 
-if player.Character then
-	bindDeathHook(player.Character)
-end
+if player.Character then bindDeathHook(player.Character) end
 
 player.CharacterAdded:Connect(function(char)
 	bindDeathHook(char)
@@ -598,13 +566,10 @@ player.CharacterAdded:Connect(function(char)
 	applyStats()
 	if state.respawnAtDeath and state.lastDeathCFrame then
 		local hrp = char:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			hrp.CFrame = state.lastDeathCFrame + Vector3.new(0, 3, 0)
-		end
+		if hrp then hrp.CFrame = state.lastDeathCFrame + Vector3.new(0, 3, 0) end
 	end
 end)
 
--- Anti-AFK
 player.Idled:Connect(function()
 	if state.antiAfk then
 		local vu = game:GetService("VirtualUser")
@@ -616,7 +581,7 @@ player.Idled:Connect(function()
 	end
 end)
 
--- ===================== HUD PHU (FOV, TARGET LINE, PERF, TARGET INFO) =====================
+-- ===================== HUD PHU =====================
 local circle = Instance.new("Frame")
 circle.AnchorPoint = Vector2.new(0.5, 0.5)
 circle.Position = UDim2.fromScale(0.5, 0.5)
@@ -625,7 +590,7 @@ circle.BackgroundTransparency = 1
 circle.Visible = false
 circle.Parent = gui
 corner(circle, 9999)
-local fovStroke = addStroke(circle, fovColors[1].color, 0.25)
+local fovStroke = addStroke(circle, fovColors[1].color, 0.25, 1.5)
 
 local targetLineFrame = Instance.new("Frame")
 targetLineFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -637,9 +602,9 @@ targetLineFrame.Parent = gui
 local targetHud = Instance.new("TextLabel")
 targetHud.AnchorPoint = Vector2.new(0.5, 0)
 targetHud.Position = UDim2.new(0.5, 0, 0, 12)
-targetHud.Size = UDim2.fromOffset(260, 28)
+targetHud.Size = UDim2.fromOffset(270, 30)
 targetHud.BackgroundColor3 = uiThemes[1].card
-targetHud.BackgroundTransparency = 0.2
+targetHud.BackgroundTransparency = 0.15
 targetHud.TextColor3 = Color3.fromRGB(255, 225, 95)
 targetHud.Font = Enum.Font.GothamBold
 targetHud.TextSize = 13
@@ -647,12 +612,13 @@ targetHud.Text = "Muc tieu: Khong co"
 targetHud.Visible = false
 targetHud.Parent = gui
 corner(targetHud, 8)
+addStroke(targetHud, Color3.fromRGB(255, 225, 95), 0.55, 1)
 
 local perfHud = Instance.new("TextLabel")
 perfHud.Position = UDim2.new(0, 12, 0, 12)
-perfHud.Size = UDim2.fromOffset(170, 26)
+perfHud.Size = UDim2.fromOffset(180, 28)
 perfHud.BackgroundColor3 = uiThemes[1].card
-perfHud.BackgroundTransparency = 0.25
+perfHud.BackgroundTransparency = 0.2
 perfHud.TextColor3 = Color3.fromRGB(120, 240, 160)
 perfHud.Font = Enum.Font.GothamBold
 perfHud.TextSize = 12
@@ -660,11 +626,14 @@ perfHud.Text = "FPS: 60 | Ping: 0ms"
 perfHud.Visible = false
 perfHud.Parent = gui
 corner(perfHud, 8)
+addStroke(perfHud, Color3.fromRGB(120, 240, 160), 0.6, 1)
 
--- ===================== MENU CHINH =====================
+-- ===================== MENU CHINH (UI GỌN ĐẸP) =====================
+local MENU_W, MENU_H = 336, 404
+
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.fromOffset(114, 36)
-toggleBtn.Position = UDim2.new(0, 12, 0.5, -18)
+toggleBtn.Size = UDim2.fromOffset(118, 38)
+toggleBtn.Position = UDim2.new(0, 12, 0.5, -19)
 toggleBtn.BackgroundColor3 = uiThemes[1].card
 toggleBtn.TextColor3 = Color3.fromRGB(255, 225, 95)
 toggleBtn.Font = Enum.Font.GothamBold
@@ -672,55 +641,63 @@ toggleBtn.TextSize = 13
 toggleBtn.Text = "VINHDZ"
 toggleBtn.Parent = gui
 corner(toggleBtn, 10)
-addStroke(toggleBtn, Color3.fromRGB(255, 225, 95), 0.35)
+addStroke(toggleBtn, Color3.fromRGB(255, 225, 95), 0.35, 1.4)
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(310, 370)
-frame.Position = UDim2.new(0, 136, 0.5, -185)
+frame.Size = UDim2.fromOffset(MENU_W, MENU_H)
+frame.Position = UDim2.new(0, 140, 0.5, -MENU_H / 2)
 frame.BackgroundColor3 = uiThemes[1].bg
 frame.Active = true
+frame.ClipsDescendants = true
 frame.Parent = gui
-corner(frame, 12)
-addStroke(frame, Color3.fromRGB(255, 225, 95), 0.45)
+corner(frame, 14)
+addStroke(frame, Color3.fromRGB(255, 225, 95), 0.45, 1.4)
+
+-- Top bar
+local topBar = Instance.new("Frame")
+topBar.Size = UDim2.new(1, 0, 0, 42)
+topBar.BackgroundColor3 = uiThemes[1].card
+topBar.BorderSizePixel = 0
+topBar.Parent = frame
 
 local header = Instance.new("TextButton")
-header.Size = UDim2.new(1, -68, 0, 36)
-header.Position = UDim2.new(0, 8, 0, 0)
+header.Size = UDim2.new(1, -76, 1, 0)
+header.Position = UDim2.new(0, 12, 0, 0)
 header.BackgroundTransparency = 1
-header.Text = "VINHDZ MENU"
+header.Text = "VINHDZ HUB"
 header.TextColor3 = Color3.fromRGB(255, 225, 95)
 header.Font = Enum.Font.GothamBold
 header.TextSize = 15
 header.TextXAlignment = Enum.TextXAlignment.Left
-header.Parent = frame
+header.Parent = topBar
 
 local miniBtn = Instance.new("TextButton")
-miniBtn.Size = UDim2.fromOffset(26, 26)
-miniBtn.Position = UDim2.new(1, -60, 0, 5)
-miniBtn.BackgroundColor3 = Color3.fromRGB(65, 72, 92)
+miniBtn.Size = UDim2.fromOffset(28, 28)
+miniBtn.Position = UDim2.new(1, -66, 0.5, -14)
+miniBtn.BackgroundColor3 = Color3.fromRGB(58, 64, 82)
 miniBtn.TextColor3 = Color3.new(1, 1, 1)
 miniBtn.Font = Enum.Font.GothamBold
-miniBtn.TextSize = 14
+miniBtn.TextSize = 15
 miniBtn.Text = "-"
-miniBtn.Parent = frame
-corner(miniBtn, 6)
+miniBtn.Parent = topBar
+corner(miniBtn, 7)
 
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.fromOffset(26, 26)
-closeBtn.Position = UDim2.new(1, -32, 0, 5)
-closeBtn.BackgroundColor3 = Color3.fromRGB(175, 65, 65)
+closeBtn.Size = UDim2.fromOffset(28, 28)
+closeBtn.Position = UDim2.new(1, -34, 0.5, -14)
+closeBtn.BackgroundColor3 = Color3.fromRGB(185, 62, 68)
 closeBtn.TextColor3 = Color3.new(1, 1, 1)
 closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 13
 closeBtn.Text = "X"
-closeBtn.Parent = frame
-corner(closeBtn, 6)
+closeBtn.Parent = topBar
+corner(closeBtn, 7)
 closeBtn.MouseButton1Click:Connect(function() frame.Visible = false end)
 
 local minimized = false
 miniBtn.MouseButton1Click:Connect(function()
 	minimized = not minimized
-	frame.Size = minimized and UDim2.fromOffset(310, 38) or UDim2.fromOffset(310, 370)
+	frame.Size = minimized and UDim2.fromOffset(MENU_W, 42) or UDim2.fromOffset(MENU_W, MENU_H)
 	miniBtn.Text = minimized and "+" or "-"
 end)
 
@@ -746,16 +723,16 @@ do
 	end)
 end
 
--- Thanh Tab (4 tab)
+-- Thanh Tab
 local tabBar = Instance.new("Frame")
-tabBar.Size = UDim2.new(1, -14, 0, 30)
-tabBar.Position = UDim2.new(0, 7, 0, 38)
+tabBar.Size = UDim2.new(1, -16, 0, 32)
+tabBar.Position = UDim2.new(0, 8, 0, 48)
 tabBar.BackgroundTransparency = 1
 tabBar.Parent = frame
 
 local tabLayout = Instance.new("UIListLayout")
 tabLayout.FillDirection = Enum.FillDirection.Horizontal
-tabLayout.Padding = UDim.new(0, 4)
+tabLayout.Padding = UDim.new(0, 5)
 tabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 tabLayout.Parent = tabBar
 
@@ -765,38 +742,43 @@ local activeTab = "Chien dau"
 
 local function createPage(name)
 	local scroll = Instance.new("ScrollingFrame")
-	scroll.Size = UDim2.new(1, -14, 1, -78)
-	scroll.Position = UDim2.new(0, 7, 0, 72)
+	scroll.Size = UDim2.new(1, -16, 1, -92)
+	scroll.Position = UDim2.new(0, 8, 0, 86)
 	scroll.BackgroundTransparency = 1
 	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 4
+	scroll.ScrollBarImageColor3 = Color3.fromRGB(130, 140, 170)
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.CanvasSize = UDim2.new()
 	scroll.Visible = (name == activeTab)
 	scroll.Parent = frame
 
 	local list = Instance.new("UIListLayout")
-	list.Padding = UDim.new(0, 7)
+	list.Padding = UDim.new(0, 8)
 	list.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	list.SortOrder = Enum.SortOrder.LayoutOrder
 	list.Parent = scroll
 
+	local pad = Instance.new("UIPadding")
+	pad.PaddingBottom = UDim.new(0, 6)
+	pad.Parent = scroll
+
 	pages[name] = { scroll = scroll, order = 0 }
 
 	local btn = Instance.new("TextButton")
-	btn.Size = UDim2.new(0.24, 0, 1, 0)
+	btn.Size = UDim2.new(0.24, -2, 1, 0)
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 11
 	btn.TextColor3 = Color3.new(1, 1, 1)
 	btn.Text = name
 	btn.Parent = tabBar
-	corner(btn, 6)
+	corner(btn, 7)
 	tabButtons[name] = btn
 
 	btn.MouseButton1Click:Connect(function()
 		if minimized then
 			minimized = false
-			frame.Size = UDim2.fromOffset(310, 370)
+			frame.Size = UDim2.fromOffset(MENU_W, MENU_H)
 			miniBtn.Text = "-"
 		end
 		activeTab = name
@@ -820,6 +802,7 @@ local pageUtil = createPage("Tien ich")
 local function applyUiTheme()
 	local t = uiThemes[state.uiThemeIdx]
 	frame.BackgroundColor3 = t.bg
+	topBar.BackgroundColor3 = t.card
 	toggleBtn.BackgroundColor3 = t.card
 	targetHud.BackgroundColor3 = t.card
 	perfHud.BackgroundColor3 = t.card
@@ -847,12 +830,12 @@ local function makeToggleButton(parent, size, pos, onChange, text, initialOn)
 	b.TextSize = 12
 	b.TextColor3 = Color3.new(1, 1, 1)
 	b.Parent = parent
-	corner(b, 6)
+	corner(b, 7)
 
 	local on = initialOn or false
 	local function refresh()
 		b.Text = text and (text .. ": " .. (on and "BAT" or "TAT")) or (on and "BAT" or "TAT")
-		b.BackgroundColor3 = on and Color3.fromRGB(46, 160, 90) or Color3.fromRGB(75, 78, 92)
+		b.BackgroundColor3 = on and Color3.fromRGB(42, 158, 92) or Color3.fromRGB(62, 66, 82)
 	end
 	refresh()
 
@@ -870,7 +853,7 @@ end
 
 local function makeToggleRow(page, text, onChange, initialOn)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -6, 0, 32)
+	row.Size = UDim2.new(1, -6, 0, 34)
 	row.BackgroundTransparency = 1
 	row.LayoutOrder = nextOrder(page)
 	row.Parent = page.scroll
@@ -879,7 +862,7 @@ end
 
 local function makeActionRow(page, text, color, onClick)
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -6, 0, 32)
+	row.Size = UDim2.new(1, -6, 0, 34)
 	row.BackgroundTransparency = 1
 	row.LayoutOrder = nextOrder(page)
 	row.Parent = page.scroll
@@ -892,7 +875,7 @@ local function makeActionRow(page, text, color, onClick)
 	b.TextSize = 12
 	b.Text = text
 	b.Parent = row
-	corner(b, 6)
+	corner(b, 7)
 
 	b.MouseButton1Click:Connect(function() onClick(b) end)
 	return b
@@ -900,16 +883,16 @@ end
 
 local function makeSliderBlock(page, title, minV, maxV, init, onValue, onToggle, suffix)
 	local f = Instance.new("Frame")
-	f.Size = UDim2.new(1, -6, 0, 62)
+	f.Size = UDim2.new(1, -6, 0, 64)
 	f.BackgroundColor3 = uiThemes[state.uiThemeIdx].card
 	f.LayoutOrder = nextOrder(page)
 	f.Parent = page.scroll
-	corner(f, 8)
+	corner(f, 9)
 	table.insert(uiCards, f)
 
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(0.65, 0, 0, 26)
-	lbl.Position = UDim2.new(0, 10, 0, 2)
+	lbl.Size = UDim2.new(0.66, 0, 0, 26)
+	lbl.Position = UDim2.new(0, 12, 0, 3)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = title .. ": " .. init .. (suffix or "")
 	lbl.TextColor3 = Color3.new(1, 1, 1)
@@ -920,13 +903,13 @@ local function makeSliderBlock(page, title, minV, maxV, init, onValue, onToggle,
 
 	local toggleSetter
 	if onToggle then
-		toggleSetter = makeToggleButton(f, UDim2.fromOffset(56, 22), UDim2.new(1, -64, 0, 4), onToggle)
+		toggleSetter = makeToggleButton(f, UDim2.fromOffset(58, 22), UDim2.new(1, -68, 0, 5), onToggle)
 	end
 
 	local track = Instance.new("Frame")
-	track.Size = UDim2.new(1, -26, 0, 8)
-	track.Position = UDim2.new(0, 13, 0, 43)
-	track.BackgroundColor3 = Color3.fromRGB(68, 70, 84)
+	track.Size = UDim2.new(1, -28, 0, 8)
+	track.Position = UDim2.new(0, 14, 0, 44)
+	track.BackgroundColor3 = Color3.fromRGB(64, 68, 84)
 	track.Parent = f
 	corner(track, 4)
 
@@ -947,7 +930,7 @@ local function makeSliderBlock(page, title, minV, maxV, init, onValue, onToggle,
 	corner(knob, 8)
 
 	local hit = Instance.new("TextButton")
-	hit.Size = UDim2.new(1, 0, 0, 28)
+	hit.Size = UDim2.new(1, 0, 0, 30)
 	hit.Position = UDim2.new(0, 0, 0, 32)
 	hit.BackgroundTransparency = 1
 	hit.Text = ""
@@ -1290,7 +1273,6 @@ RunService.RenderStepped:Connect(function(dt)
 	local char, myHrp, hum = getChar()
 	local now = os.clock()
 
-	-- Cap nhat FPS & Ping
 	frameCounter += 1
 	if state.showPerf and now - lastPerfUpdate >= 0.5 then
 		local fps = math.floor(frameCounter / (now - lastPerfUpdate) + 0.5)
@@ -1303,24 +1285,18 @@ RunService.RenderStepped:Connect(function(dt)
 		perfHud.Text = string.format("FPS: %d | Ping: %dms", fps, ping)
 	end
 
-	-- Chong giam toc do & tu trang bi tool
 	if hum and hum.Health > 0 then
 		if state.antiSlow then
 			local targetSpd = state.speedOn and state.speed or DEFAULT_SPEED
-			if hum.WalkSpeed < targetSpd then
-				hum.WalkSpeed = targetSpd
-			end
+			if hum.WalkSpeed < targetSpd then hum.WalkSpeed = targetSpd end
 		end
 		if state.autoEquip and char and not char:FindFirstChildOfClass("Tool") then
 			local bp = player:FindFirstChildOfClass("Backpack")
 			local tool = bp and bp:FindFirstChildOfClass("Tool")
-			if tool then
-				hum:EquipTool(tool)
-			end
+			if tool then hum:EquipTool(tool) end
 		end
 	end
 
-	-- AirWalk & Spin
 	if state.airWalk and airPart and myHrp then
 		airPart.Position = Vector3.new(myHrp.Position.X, myHrp.Position.Y - 3.5, myHrp.Position.Z)
 	end
@@ -1328,7 +1304,6 @@ RunService.RenderStepped:Connect(function(dt)
 		myHrp.CFrame = myHrp.CFrame * CFrame.Angles(0, math.rad(state.spinSpeed), 0)
 	end
 
-	-- Cap nhat ESP
 	if state.esp and now - lastEspSync >= 0.5 then
 		lastEspSync = now
 		syncEspTargets()
@@ -1372,26 +1347,20 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- Xuyen tuong
 	if char and (state.noclip or state.fly) then
 		for _, part in ipairs(char:GetDescendants()) do
 			if part:IsA("BasePart") then
-				if savedCollide[part] == nil then
-					savedCollide[part] = part.CanCollide
-				end
+				if savedCollide[part] == nil then savedCollide[part] = part.CanCollide end
 				part.CanCollide = false
 			end
 		end
 	elseif next(savedCollide) ~= nil then
 		for part, canCollide in pairs(savedCollide) do
-			if part and part.Parent then
-				part.CanCollide = canCollide
-			end
+			if part and part.Parent then part.CanCollide = canCollide end
 		end
 		table.clear(savedCollide)
 	end
 
-	-- Bay thu cong
 	if state.fly and bv and hum and camera then
 		local move = hum.MoveDirection
 		local look = camera.CFrame.LookVector
@@ -1411,7 +1380,6 @@ RunService.RenderStepped:Connect(function(dt)
 
 	local aimPart, aimModel = getTarget()
 
-	-- Cap nhat HUD thong tin muc tieu & duong ke
 	if state.targetInfoHud then
 		if aimModel then
 			local _, _, tHum, tPlr = isValidTargetModel(aimModel)
@@ -1450,14 +1418,12 @@ RunService.RenderStepped:Connect(function(dt)
 	if shouldAim and camera and aimPart then
 		local aimPos = aimPart.Position
 		if state.aimPredict then
-			local vel = aimPart.AssemblyLinearVelocity
-			aimPos += vel * 0.12
+			aimPos += aimPart.AssemblyLinearVelocity * 0.12
 		end
 		local target = CFrame.lookAt(camera.CFrame.Position, aimPos)
 		camera.CFrame = camera.CFrame:Lerp(target, 1 - math.exp(-state.aimSmooth * dt))
 	end
 
-	-- Auto ban khi co dich
 	if state.triggerBot and aimPart and camera and (now - lastTriggerShot >= state.triggerCooldown) then
 		local canShoot = true
 		if state.triggerFovOnly then
@@ -1467,9 +1433,7 @@ RunService.RenderStepped:Connect(function(dt)
 			else
 				local center = camera.ViewportSize / 2
 				local dist2D = (Vector2.new(pos.X, pos.Y) - center).Magnitude
-				if dist2D > state.fov then
-					canShoot = false
-				end
+				if dist2D > state.fov then canShoot = false end
 			end
 		end
 
